@@ -8,7 +8,7 @@
  * cache is thrown away on the next open. Forget to bump it and phones keep
  * serving yesterday's app — that is the classic PWA trap.
  */
-var BUILD = "1.0";
+var BUILD = "1.1";
 var CACHE = "peoria-daily-" + BUILD;
 
 /* Only the shell. Reports live in Firestore, which does its own offline work. */

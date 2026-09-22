@@ -297,8 +297,8 @@ input:focus, textarea:focus{outline:none; border-color:var(--pri)}
 /* ================= version =================
    BUILD appears here AND in sw.js — bump both on every release, or phones keep
    serving the old app forever. BUILD_DATE is the date at the PROJECT SITE. */
-var BUILD = "1.0";
-var BUILD_DATE = "2026-09-19";
+var BUILD = "1.1";
+var BUILD_DATE = "2026-09-22";
 
 /* United Services mark — shown on a white plate so the navy wordmark
    reads on both the light and dark backgrounds. */
@@ -466,7 +466,10 @@ var T = {
   wait1:"1 reporte esperando enviar.", waitN:"{n} reportes esperando enviar.",
   waitSending:"Enviando…", waitNoSignal:"Ábrela otra vez cuando tengas señal.",
   hrsLost:"horas perdidas", loading:"Cargando…", noConn:"Sin conexión con la oficina",
-  pending:"Reportes esperando", sendNow:"Enviar ahora", lastErrL:"Último error"
+  pending:"Reportes esperando", sendNow:"Enviar ahora", lastErrL:"Último error",
+  errRules:"Firestore rechaza la escritura: falta publicar firestore.rules en la consola de Firebase",
+  errNoDb:"La base de datos de Firestore no existe todavía: créala en la consola (modo Native)",
+  errNet:"No se alcanzó Firestore: revisa la señal"
  },
  en:{
   other:"ES", fill:"Fill in my report", sentToday:"Today's report is already sent",
@@ -517,7 +520,10 @@ var T = {
   wait1:"1 report waiting to send.", waitN:"{n} reports waiting to send.",
   waitSending:"Sending…", waitNoSignal:"Open it again when you have signal.",
   hrsLost:"hours lost", loading:"Loading…", noConn:"No connection to the office",
-  pending:"Reports waiting", sendNow:"Send now", lastErrL:"Last error"
+  pending:"Reports waiting", sendNow:"Send now", lastErrL:"Last error",
+  errRules:"Firestore refused the write: firestore.rules has not been published in the Firebase console",
+  errNoDb:"The Firestore database does not exist yet: create it in the console (Native mode)",
+  errNet:"Could not reach Firestore: check the signal"
  }
 };
 
@@ -812,8 +818,10 @@ function vHome(t){
   if(waiting){
     tell((waiting === 1 ? t.wait1 : t.waitN.replace("{n}", waiting)) + " " +
          (navigator.onLine ? t.waitSending : t.waitNoSignal), "");
+    if(outErr) tell(t.lastErrL + ": " + explainErr(outErr, t), "bad");
   }
   if(noCfg) tell(t.noCfg, "bad");
+  if(sdkFailed) tell(t.noSdk, "bad");
 
   main.appendChild(btn("go green", t.fill, function(){
     R = newReport(last ? {foreman:last.foreman, men:last.men, start:last.start, end:last.end} : null);
@@ -1188,7 +1196,8 @@ function send(){
      the server actually acknowledges it. */
   if(db){
     try{
-      db.doc(COL + "/" + id).set(doc).then(function(){ outDone(id); }).catch(function(){});
+      db.doc(COL + "/" + id).set(doc).then(function(){ outDone(id); outErr = ""; })
+        .catch(function(e){ outErr = errCode(e); });
     }catch(e){}
   }
   busy = false;
@@ -1421,12 +1430,12 @@ var SHEET_URL = "";
 var SHEET_TOKEN = "peoria-2026-Xm4tR9";
 
 var FB = {
-  apiKey: "",
-  authDomain: "",
-  projectId: "",
-  storageBucket: "",
-  messagingSenderId: "",
-  appId: ""
+  apiKey: "AIzaSyCN_sCKbmbFNNOFn1wC8W-MnUkQvQwTlqE",
+  authDomain: "peoria-643f6.firebaseapp.com",
+  projectId: "peoria-643f6",
+  storageBucket: "peoria-643f6.firebasestorage.app",
+  messagingSenderId: "603804357926",
+  appId: "1:603804357926:web:9d9b05605062be9f091de7"
 };
 
 var auth = null, user = null, sdkFailed = false, noCfg = !FB.projectId;
@@ -1502,8 +1511,19 @@ function outCount(){ return outGet().length; }
    on an offline→online transition, so a phone already online at boot never
    fires it — one failed attempt at start and the queue would sit forever. */
 var lastFlush = 0, outErr = "";
+function errCode(e){ return (e && (e.code || e.message)) ? String(e.code || e.message) : "error"; }
+/* The Firestore error codes a new project actually produces, in words the
+   person setting it up can act on. The raw code stays on the end. */
+function explainErr(code, t){
+  var c = String(code || "").toLowerCase(), why = "";
+  if(c.indexOf("permission") >= 0) why = t.errRules;
+  else if(c.indexOf("not-found") >= 0 || c.indexOf("failed-precondition") >= 0 || c.indexOf("database") >= 0) why = t.errNoDb;
+  else if(c.indexOf("unavailable") >= 0 || c.indexOf("network") >= 0 || c.indexOf("deadline") >= 0) why = t.errNet;
+  else if(c === "sdk") why = t.noSdk;
+  return why ? why + " (" + code + ")" : code;
+}
 function flushOutbox(force){
-  if(!db) return;
+  if(!db){ if(outGet().length) outErr = "sdk"; return; }
   var box = outGet();
   if(!box.length){ outErr = ""; return; }
   var now = Date.now();
@@ -1515,8 +1535,8 @@ function flushOutbox(force){
         outDone(entry.id); outErr = "";
         if(screen === "home" || screen === "sup") render();
       }).catch(function(e){
-        outErr = (e && (e.code || e.message)) ? String(e.code || e.message) : "error";
-        if(screen === "sup") render();
+        outErr = errCode(e);
+        if(screen === "sup" || screen === "home") render();
       });
     }catch(e){ outErr = String((e && e.message) || e); }
   });
